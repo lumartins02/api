@@ -87,21 +87,47 @@ app.post('/api/tribe/members', (req, res) => {
 app.get('/api/tribe/incomings', (req, res) => {
     const { worldId } = req.query;
     console.log(`[GET] /api/tribe/incomings - worldId: ${worldId}`);
+    
     const worldIncomings = tribeIncomings.get(worldId) || new Map();
+    const worldMembers = tribeMembers.get(worldId) || new Map();
+    
     const allAttacks = [];
     let totalAttacks = 0;
     let totalNobles = 0;
     let totalRams = 0;
 
-    for (const [playerId, playerAttacks] of worldIncomings) {
+    // Primeiro, pegamos todos os membros detectados no scan da tribo
+    for (const [playerId, member] of worldMembers) {
+        const playerAttacks = worldIncomings.get(playerId) || { attacks: [] };
+        
         allAttacks.push({
             playerId,
-            playerName: playerAttacks.playerName || "Desconhecido",
+            playerName: member.name || playerAttacks.playerName || "Desconhecido",
+            points: member.points || 0,
+            rank: member.rank || 0,
+            villages: member.villages || 0,
+            incomingCount: member.incomingCount || playerAttacks.incomingCount || playerAttacks.attacks.length || 0,
             attacks: playerAttacks.attacks || []
         });
-        totalAttacks += (playerAttacks.attacks || []).length;
+        
+        totalAttacks += (member.incomingCount || playerAttacks.incomingCount || playerAttacks.attacks.length || 0);
         totalNobles += (playerAttacks.attacks || []).filter(a => a.isNoble).length;
         totalRams += (playerAttacks.attacks || []).filter(a => a.isRam).length;
+    }
+
+    // Se houver algum jogador com ataques mas que não está na lista de membros (ex: o próprio usuário antes do scan)
+    for (const [playerId, playerAttacks] of worldIncomings) {
+        if (!worldMembers.has(playerId)) {
+            allAttacks.push({
+                playerId,
+                playerName: playerAttacks.playerName || "Desconhecido",
+                incomingCount: playerAttacks.incomingCount || playerAttacks.attacks.length || 0,
+                attacks: playerAttacks.attacks || []
+            });
+            totalAttacks += (playerAttacks.incomingCount || playerAttacks.attacks.length || 0);
+            totalNobles += (playerAttacks.attacks || []).filter(a => a.isNoble).length;
+            totalRams += (playerAttacks.attacks || []).filter(a => a.isRam).length;
+        }
     }
 
     console.log(`[GET] /api/tribe/incomings - Retornando ${allAttacks.length} jogadores, ${totalAttacks} ataques totais`);
