@@ -17,14 +17,7 @@ const io = new Server(server, {
 let worlds = [];
 let locks = new Map();
 let configs = new Map();
-
-// ─── ROTA RAIZ (IMPORTANTE PRO RAILWAY) ────────────────────────────────
-app.get('/', (req, res) => {
-    res.json({
-        status: 'online',
-        message: 'API AcidPro funcionando 🚀'
-    });
-});
+let tribeIncomings = new Map(); // key: worldId, value: Map of playerId -> attacks
 
 // ─── API ROUTES ──────────────────────────────────────────────────────────
 
@@ -54,6 +47,60 @@ app.post('/api/sync/worlds', (req, res) => {
     res.json({ success: true, data: world });
 });
 
+// Tribe Defense
+app.get('/api/tribe/incomings', (req, res) => {
+    const { worldId } = req.query;
+    const worldIncomings = tribeIncomings.get(worldId) || new Map();
+    const allAttacks = [];
+    let totalAttacks = 0;
+    let totalNobles = 0;
+    let totalRams = 0;
+
+    for (const [playerId, playerAttacks] of worldIncomings) {
+        allAttacks.push({
+            playerId,
+            playerName: playerAttacks.playerName || "Desconhecido",
+            attacks: playerAttacks.attacks || []
+        });
+        totalAttacks += (playerAttacks.attacks || []).length;
+        totalNobles += (playerAttacks.attacks || []).filter(a => a.isNoble).length;
+        totalRams += (playerAttacks.attacks || []).filter(a => a.isRam).length;
+    }
+
+    res.json({
+        success: true,
+        data: {
+            members: allAttacks,
+            totalAttacks,
+            totalNobles,
+            totalRams
+        }
+    });
+});
+
+app.post('/api/tribe/incomings', (req, res) => {
+    const { worldId, attacks, playerId, playerName } = req.body;
+    if (!worldId) return res.status(400).json({ success: false, error: "worldId missing" });
+
+    if (!tribeIncomings.has(worldId)) {
+        tribeIncomings.set(worldId, new Map());
+    }
+
+    const worldIncomings = tribeIncomings.get(worldId);
+    // Para simplificar, usamos o playerId ou "local"
+    const pId = playerId || "local-player";
+    worldIncomings.set(pId, {
+        playerName: playerName || "Local Player",
+        attacks: attacks || [],
+        updatedAt: Date.now()
+    });
+
+    // Broadcast para outros membros via socket
+    io.to(`world_${worldId}`).emit('tribe:incomings-updated', { worldId });
+
+    res.json({ success: true });
+});
+
 // Motor Lock
 app.post('/api/motor/lock', (req, res) => {
     const { worldId, deviceId, deviceName } = req.body;
@@ -74,25 +121,17 @@ app.post('/api/motor/lock', (req, res) => {
 app.post('/api/motor/heartbeat', (req, res) => {
     const { worldId, deviceId } = req.body;
     const lock = locks.get(worldId);
-
     if (lock && lock.deviceId === deviceId) {
         lock.timestamp = Date.now();
-        return res.json({
-            success: true,
-            data: {
-                allowed: true,
-                isActive: true,
-                subscriptionTier: "pro"
-            }
-        });
+        return res.json({ success: true, data: { allowed: true, isActive: true, subscriptionTier: "pro" } });
     }
-
     res.status(403).json({ success: false, error: "lock_lost" });
 });
 
-// Tribe Defense
+// Tribe Defense (Exemplo de Rota de Compartilhamento)
 app.post('/api/defense/share', (req, res) => {
     const data = req.body;
+    // Retransmite para todos os membros da tribo via Socket
     io.to(`tribe_${data.tribeId}`).emit('defense:update', data);
     res.json({ success: true });
 });
@@ -116,10 +155,7 @@ io.on('connection', (socket) => {
     });
 });
 
-// ─── START SERVER (CORRIGIDO PRO RAILWAY) ────────────────────────────────
-
-const PORT = process.env.PORT || 3000;
-
-server.listen(PORT, '0.0.0.0', () => {
+const PORT = process.env.PORT || 8080;
+server.listen(PORT, "0.0.0.0", () => {
     console.log(`API AcidPro rodando na porta ${PORT}`);
 });
