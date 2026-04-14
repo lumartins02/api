@@ -18,8 +18,19 @@ let worlds = [];
 let locks = new Map();
 let configs = new Map();
 let tribeIncomings = new Map(); // key: worldId, value: Map of playerId -> attacks
+let tribeMembers = new Map();   // key: worldId, value: Map of playerId -> member info
 
 // ─── API ROUTES ──────────────────────────────────────────────────────────
+
+// Root Status
+app.get('/', (req, res) => {
+    res.json({
+        status: "online",
+        service: "AcidPro Private API",
+        version: "1.0.0",
+        endpoints: ["/api/auth/me", "/api/sync/worlds", "/api/tribe/incomings", "/api/tribe/members"]
+    });
+});
 
 // Auth
 app.get('/api/auth/me', (req, res) => {
@@ -47,7 +58,32 @@ app.post('/api/sync/worlds', (req, res) => {
     res.json({ success: true, data: world });
 });
 
-// Tribe Defense
+// Tribe Members Summary (Scan Results)
+app.get('/api/tribe/members', (req, res) => {
+    const { worldId } = req.query;
+    const worldMembers = tribeMembers.get(worldId) || new Map();
+    // Convert Map values to Array
+    const data = Array.from(worldMembers.values());
+    res.json({ success: true, data });
+});
+
+app.post('/api/tribe/members', (req, res) => {
+    const { worldId, members, allyName } = req.body;
+    if (!worldId) return res.status(400).json({ success: false, error: "worldId missing" });
+    
+    if (!tribeMembers.has(worldId)) {
+        tribeMembers.set(worldId, new Map());
+    }
+    
+    const worldMembers = tribeMembers.get(worldId);
+    (members || []).forEach(m => {
+        worldMembers.set(m.playerId, { ...m, allyName, updatedAt: Date.now() });
+    });
+    
+    res.json({ success: true });
+});
+
+// Tribe Defense (Detailed Attacks)
 app.get('/api/tribe/incomings', (req, res) => {
     const { worldId } = req.query;
     console.log(`[GET] /api/tribe/incomings - worldId: ${worldId}`);
@@ -92,9 +128,14 @@ app.post('/api/tribe/incomings', (req, res) => {
 
     const worldIncomings = tribeIncomings.get(worldId);
     const pId = playerId || "local-player";
+    
+    // Se recebemos ataques detalhados, mantemos. Se não, mantemos o que já existe ou apenas o contador.
+    const existing = worldIncomings.get(pId) || {};
+    
     worldIncomings.set(pId, {
-        playerName: playerName || "Local Player",
-        attacks: attacks || [],
+        playerName: playerName || existing.playerName || "Local Player",
+        attacks: attacks || existing.attacks || [],
+        incomingCount: req.body.incomingCount || attacks?.length || existing.incomingCount || 0,
         updatedAt: Date.now()
     });
 
