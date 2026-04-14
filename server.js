@@ -50,6 +50,7 @@ app.post('/api/sync/worlds', (req, res) => {
 // Tribe Defense
 app.get('/api/tribe/incomings', (req, res) => {
     const { worldId } = req.query;
+    console.log(`[GET] /api/tribe/incomings - worldId: ${worldId}`);
     const worldIncomings = tribeIncomings.get(worldId) || new Map();
     const allAttacks = [];
     let totalAttacks = 0;
@@ -67,6 +68,7 @@ app.get('/api/tribe/incomings', (req, res) => {
         totalRams += (playerAttacks.attacks || []).filter(a => a.isRam).length;
     }
 
+    console.log(`[GET] /api/tribe/incomings - Retornando ${allAttacks.length} jogadores, ${totalAttacks} ataques totais`);
     res.json({
         success: true,
         data: {
@@ -80,6 +82,8 @@ app.get('/api/tribe/incomings', (req, res) => {
 
 app.post('/api/tribe/incomings', (req, res) => {
     const { worldId, attacks, playerId, playerName } = req.body;
+    console.log(`[POST] /api/tribe/incomings - worldId: ${worldId}, player: ${playerName} (${playerId}), attacks: ${attacks?.length || 0}`);
+    
     if (!worldId) return res.status(400).json({ success: false, error: "worldId missing" });
 
     if (!tribeIncomings.has(worldId)) {
@@ -87,7 +91,6 @@ app.post('/api/tribe/incomings', (req, res) => {
     }
 
     const worldIncomings = tribeIncomings.get(worldId);
-    // Para simplificar, usamos o playerId ou "local"
     const pId = playerId || "local-player";
     worldIncomings.set(pId, {
         playerName: playerName || "Local Player",
@@ -96,7 +99,8 @@ app.post('/api/tribe/incomings', (req, res) => {
     });
 
     // Broadcast para outros membros via socket
-    io.to(`world_${worldId}`).emit('tribe:incomings-updated', { worldId });
+    io.emit('tribe:incomings-updated', { worldId });
+    console.log(`[SOCKET] Emitindo tribe:incomings-updated para worldId: ${worldId}`);
 
     res.json({ success: true });
 });
@@ -109,14 +113,21 @@ app.post('/api/motor/lock', (req, res) => {
     if (currentLock && currentLock.deviceId !== deviceId) {
         return res.status(409).json({
             success: false,
-            error: "world_already_locked",
-            lockedBy: { deviceName: currentLock.deviceName }
+            lockedBy: currentLock.deviceName || "Outro dispositivo"
         });
     }
 
     locks.set(worldId, { deviceId, deviceName, timestamp: Date.now() });
-    res.json({ success: true, data: { success: true } });
+    res.json({ success: true });
 });
+
+// Logs (Opcional, para evitar erros no bot)
+app.post('/api/logs', (req, res) => {
+    // console.log(`[LOGS] Recebidos ${req.body?.logs?.length || 0} logs`);
+    res.json({ success: true });
+});
+
+// Configs Sync
 
 app.post('/api/motor/heartbeat', (req, res) => {
     const { worldId, deviceId } = req.body;
