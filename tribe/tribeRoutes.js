@@ -48,7 +48,14 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
 
         // Primeiro, pegamos todos os membros detectados no scan da tribo
         for (const [playerId, member] of worldMembers) {
-            const playerAttacks = worldIncomings.get(playerId) || { attacks: [] };
+            // Busca inteligente: tenta por ID, se não encontrar tenta por nome exato (caso o ID mude no scan)
+            let playerAttacks = worldIncomings.get(playerId);
+            if (!playerAttacks) {
+                playerAttacks = Array.from(worldIncomings.values()).find(a => a.playerName === member.name);
+            }
+            
+            // Se ainda não encontrou nada, cria objeto vazio com ataques vazios
+            playerAttacks = playerAttacks || { attacks: [] };
             
             allAttacks.push({
                 playerId,
