@@ -46,37 +46,54 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
         let totalNobles = 0;
         let totalRams = 0;
 
-        // Primeiro, pegamos todos os membros detectados no scan da tribo
+        // Debug: Logar o que temos na memória para este mundo
+        console.log(`[DEBUG] Membros no scan: ${worldMembers.size}, Jogadores com detalhes: ${worldIncomings.size}`);
+
         for (const [playerId, member] of worldMembers) {
-            // Busca inteligente: tenta por ID, se não encontrar tenta por nome exato (caso o ID mude no scan)
-            let playerAttacks = worldIncomings.get(playerId);
+            const mName = String(member.name || "").trim();
+            const mId = String(playerId).trim();
+
+            // Busca Super Leniente: tenta por ID, Nome exato, ou busca parcial no nome
+            let playerAttacks = worldIncomings.get(mId);
+            
             if (!playerAttacks) {
-                playerAttacks = Array.from(worldIncomings.values()).find(a => a.playerName === member.name);
+                // Tenta achar qualquer entrada que contenha o nome do jogador
+                const entries = Array.from(worldIncomings.values());
+                playerAttacks = entries.find(a => {
+                    const storedName = String(a.playerName || "").trim().toLowerCase();
+                    const targetName = mName.toLowerCase();
+                    return storedName === targetName || storedName.includes(targetName) || targetName.includes(storedName);
+                });
             }
             
-            // Se ainda não encontrou nada, cria objeto vazio com ataques vazios
-            playerAttacks = playerAttacks || { attacks: [] };
-            
+            if (playerAttacks && playerAttacks.attacks && playerAttacks.attacks.length > 0) {
+                console.log(`[MATCH SUCCESS] Vinculados ${playerAttacks.attacks.length} ataques para: ${mName}`);
+            }
+
+            const pAttacks = playerAttacks || { attacks: [] };
+            const finalIncomingCount = member.incomingCount || pAttacks.incomingCount || pAttacks.attacks.length || 0;
+
             allAttacks.push({
-                playerId,
-                playerName: member.name || playerAttacks.playerName || "Desconhecido",
+                playerId: mId,
+                playerName: mName,
                 points: member.points || 0,
                 rank: member.rank || 0,
                 villages: member.villages || 0,
-                incomingCount: member.incomingCount || playerAttacks.incomingCount || playerAttacks.attacks.length || 0,
-                attacks: playerAttacks.attacks || []
+                incomingCount: finalIncomingCount,
+                attacks: pAttacks.attacks || []
             });
             
-            totalAttacks += (member.incomingCount || playerAttacks.incomingCount || playerAttacks.attacks.length || 0);
-            totalNobles += (playerAttacks.attacks || []).filter(a => a.isNoble).length;
-            totalRams += (playerAttacks.attacks || []).filter(a => a.isRam).length;
+            totalAttacks += finalIncomingCount;
+            totalNobles += (pAttacks.attacks || []).filter(a => a.isNoble).length;
+            totalRams += (pAttacks.attacks || []).filter(a => a.isRam).length;
         }
 
-        // Se houver algum jogador com ataques mas que não está na lista de membros
+        // Adiciona quem tem ataques mas não apareceu no scan da tribo
         for (const [playerId, playerAttacks] of worldIncomings) {
-            if (!worldMembers.has(playerId)) {
+            const pId = String(playerId).trim();
+            if (!allAttacks.find(a => a.playerId === pId)) {
                 allAttacks.push({
-                    playerId,
+                    playerId: pId,
                     playerName: playerAttacks.playerName || "Desconhecido",
                     incomingCount: playerAttacks.incomingCount || playerAttacks.attacks.length || 0,
                     attacks: playerAttacks.attacks || []
@@ -87,7 +104,6 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
             }
         }
 
-        console.log(`[GET] /api/tribe/incomings - Retornando ${allAttacks.length} jogadores, ${totalAttacks} ataques totais`);
         res.json({
             success: true,
             data: {
