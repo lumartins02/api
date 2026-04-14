@@ -18,6 +18,14 @@ let worlds = [];
 let locks = new Map();
 let configs = new Map();
 
+// ─── ROTA RAIZ (IMPORTANTE PRO RAILWAY) ────────────────────────────────
+app.get('/', (req, res) => {
+    res.json({
+        status: 'online',
+        message: 'API AcidPro funcionando 🚀'
+    });
+});
+
 // ─── API ROUTES ──────────────────────────────────────────────────────────
 
 // Auth
@@ -66,17 +74,25 @@ app.post('/api/motor/lock', (req, res) => {
 app.post('/api/motor/heartbeat', (req, res) => {
     const { worldId, deviceId } = req.body;
     const lock = locks.get(worldId);
+
     if (lock && lock.deviceId === deviceId) {
         lock.timestamp = Date.now();
-        return res.json({ success: true, data: { allowed: true, isActive: true, subscriptionTier: "pro" } });
+        return res.json({
+            success: true,
+            data: {
+                allowed: true,
+                isActive: true,
+                subscriptionTier: "pro"
+            }
+        });
     }
+
     res.status(403).json({ success: false, error: "lock_lost" });
 });
 
-// Tribe Defense (Exemplo de Rota de Compartilhamento)
+// Tribe Defense
 app.post('/api/defense/share', (req, res) => {
     const data = req.body;
-    // Retransmite para todos os membros da tribo via Socket
     io.to(`tribe_${data.tribeId}`).emit('defense:update', data);
     res.json({ success: true });
 });
@@ -100,7 +116,10 @@ io.on('connection', (socket) => {
     });
 });
 
+// ─── START SERVER (CORRIGIDO PRO RAILWAY) ────────────────────────────────
+
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+
+server.listen(PORT, '0.0.0.0', () => {
     console.log(`API AcidPro rodando na porta ${PORT}`);
 });
