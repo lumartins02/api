@@ -46,12 +46,15 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
         let totalNobles = 0;
         let totalRams = 0;
 
-        // Debug: Logar o que temos na memória para este mundo
         console.log(`[DEBUG] Membros no scan: ${worldMembers.size}, Jogadores com detalhes: ${worldIncomings.size}`);
+        console.log(`[DEBUG] IDs detalhados em memória: ${Array.from(worldIncomings.keys()).join(', ')}`);
+        console.log(`[DEBUG] Nomes detalhados em memória: ${Array.from(worldIncomings.values()).map(v => v.playerName).join(', ')}`);
 
         for (const [playerId, member] of worldMembers) {
             const mName = String(member.name || "").trim();
             const mId = String(playerId).trim();
+
+            console.log(`[DEBUG] Tentando vincular membro: "${mName}" ID: "${mId}"`);
 
             // Busca Super Leniente: tenta por ID, Nome exato, ou busca parcial no nome
             let playerAttacks = worldIncomings.get(mId);
@@ -62,12 +65,16 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
                 playerAttacks = entries.find(a => {
                     const storedName = String(a.playerName || "").trim().toLowerCase();
                     const targetName = mName.toLowerCase();
-                    return storedName === targetName || storedName.includes(targetName) || targetName.includes(storedName);
+                    const match = storedName === targetName || storedName.includes(targetName) || targetName.includes(storedName);
+                    if (match) console.log(`[DEBUG] Match por NOME encontrado: "${storedName}" corresponde a "${targetName}"`);
+                    return match;
                 });
             }
             
-            if (playerAttacks && playerAttacks.attacks && playerAttacks.attacks.length > 0) {
-                console.log(`[MATCH SUCCESS] Vinculados ${playerAttacks.attacks.length} ataques para: ${mName} (Villages: ${playerAttacks.villages?.length || 0})`);
+            if (playerAttacks) {
+                console.log(`[MATCH SUCCESS] Vinculados ${playerAttacks.attacks?.length || 0} ataques para: ${mName} (Villages: ${playerAttacks.villages?.length || 0})`);
+            } else {
+                console.log(`[MATCH FAIL] Nenhum detalhe encontrado para: "${mName}" (ID: ${mId})`);
             }
 
             const pAttacks = playerAttacks || { attacks: [], villages: [] };
@@ -187,6 +194,12 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
                 villageMap.get(coord).incomingAttacks.push(att);
             });
             normalizedVillages = Array.from(villageMap.values());
+        }
+
+        // GARANTIA: Nunca deixar villages vazio se temos ataques e tínhamos villages antes
+        if (normalizedVillages.length === 0 && existing.villages && existing.villages.length > 0 && normalizedAttacks.length > 0) {
+            console.log(`[BACKEND] Recuperando villages antigos para ${playerName || pId} para evitar lista vazia`);
+            normalizedVillages = existing.villages;
         }
 
         const incomingCount =
