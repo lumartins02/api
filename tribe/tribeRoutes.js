@@ -102,6 +102,7 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
                     playerId: pId,
                     playerName: playerAttacks.playerName || "Desconhecido",
                     incomingCount: playerAttacks.incomingCount || playerAttacks.attacks.length || 0,
+                    villages: playerAttacks.villages || [],
                     attacks: playerAttacks.attacks || []
                 });
                 totalAttacks += (playerAttacks.incomingCount || playerAttacks.attacks.length || 0);
