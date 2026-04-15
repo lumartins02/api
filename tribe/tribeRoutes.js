@@ -67,11 +67,30 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
             }
             
             if (playerAttacks && playerAttacks.attacks && playerAttacks.attacks.length > 0) {
-                console.log(`[MATCH SUCCESS] Vinculados ${playerAttacks.attacks.length} ataques para: ${mName}`);
+                console.log(`[MATCH SUCCESS] Vinculados ${playerAttacks.attacks.length} ataques para: ${mName} (Villages: ${playerAttacks.villages?.length || 0})`);
             }
 
             const pAttacks = playerAttacks || { attacks: [], villages: [] };
-            const detailedVillages = Array.isArray(pAttacks.villages) ? pAttacks.villages : [];
+            let detailedVillages = Array.isArray(pAttacks.villages) ? pAttacks.villages : [];
+
+            // BACKUP: Se temos ataques mas villages está vazio por algum motivo, reconstruir aqui também
+            if (detailedVillages.length === 0 && pAttacks.attacks && pAttacks.attacks.length > 0) {
+                console.log(`[GET] Reconstruindo villages para ${mName} em tempo de execução`);
+                const vMap = new Map();
+                pAttacks.attacks.forEach(att => {
+                    const coord = att.destination?.match(/\d{1,3}\|\d{1,3}/)?.[0] || "Desconhecida";
+                    if (!vMap.has(coord)) {
+                        vMap.set(coord, {
+                            coord,
+                            villageName: att.destination?.split("(")[0]?.trim() || "Aldeia",
+                            incomingAttacks: [],
+                            troops: { own: {}, support: {}, total: {} }
+                        });
+                    }
+                    vMap.get(coord).incomingAttacks.push(att);
+                });
+                detailedVillages = Array.from(vMap.values());
+            }
             const finalIncomingCount = member.incomingCount || pAttacks.incomingCount || pAttacks.attacks.length || detailedVillages.reduce((sum, v) => sum + ((v?.incomingAttacks?.length) || 0), 0) || 0;
 
             allAttacks.push({
