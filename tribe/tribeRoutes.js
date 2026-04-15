@@ -68,13 +68,15 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
             let playerAttacks = worldIncomings.get(mId);
             
             if (!playerAttacks) {
-                // Tenta achar qualquer entrada que contenha o nome do jogador
+                // Tenta achar qualquer entrada que contenha o nome do jogador (Normalizado para remover acentos e case insensitive)
                 const entries = Array.from(worldIncomings.values());
+                const normalizeStr = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+                
                 playerAttacks = entries.find(a => {
-                    const storedName = String(a.playerName || "").trim().toLowerCase();
-                    const targetName = mName.toLowerCase();
+                    const storedName = normalizeStr(a.playerName);
+                    const targetName = normalizeStr(mName);
                     const match = storedName === targetName || storedName.includes(targetName) || targetName.includes(storedName);
-                    if (match) console.log(`[DEBUG] Match por NOME encontrado: "${storedName}" corresponde a "${targetName}"`);
+                    if (match) console.log(`[DEBUG] Match por NOME (Normalizado) encontrado: "${storedName}" corresponde a "${targetName}"`);
                     return match;
                 });
             }
@@ -147,11 +149,16 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
                 totalNobles += flatAttacks.filter(a => a.isNoble).length;
                 totalRams += flatAttacks.filter(a => a.isRam).length;
             } else {
-                // SE JÁ EXISTE NO SCAN DA TRIBO, GARANTIR QUE OS DETALHES DAS ALDEIAS SEJAM VINCULADOS
-                if (playerAttacks.villages && playerAttacks.villages.length > 0) {
-                    existingInAll.villages = playerAttacks.villages;
-                    console.log(`[MATCH SYNC] Detalhes de aldeias forçados para ${existingInAll.playerName}`);
+            // SE JÁ EXISTE NO SCAN DA TRIBO, GARANTIR QUE OS DETALHES DAS ALDEIAS SEJAM VINCULADOS
+            if (playerAttacks.villages && playerAttacks.villages.length > 0) {
+                existingInAll.villages = playerAttacks.villages;
+                // Atualizar contagem para refletir os detalhes reais
+                const detailCount = playerAttacks.villages.reduce((sum, v) => sum + (v.incomingAttacks?.length || 0), 0);
+                if (detailCount > 0) {
+                    existingInAll.incomingCount = detailCount;
                 }
+                console.log(`[MATCH SYNC] Detalhes de aldeias forçados para ${existingInAll.playerName} (${existingInAll.incomingCount} ataques)`);
+            }
             }
         }
 
