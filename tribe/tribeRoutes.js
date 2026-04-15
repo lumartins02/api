@@ -70,22 +70,28 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
                 console.log(`[MATCH SUCCESS] Vinculados ${playerAttacks.attacks.length} ataques para: ${mName}`);
             }
 
-            const pAttacks = playerAttacks || { attacks: [] };
-            const finalIncomingCount = member.incomingCount || pAttacks.incomingCount || pAttacks.attacks.length || 0;
+            const pAttacks = playerAttacks || { attacks: [], villages: [] };
+            const detailedVillages = Array.isArray(pAttacks.villages) ? pAttacks.villages : [];
+            const finalIncomingCount = member.incomingCount || pAttacks.incomingCount || pAttacks.attacks.length || detailedVillages.reduce((sum, v) => sum + ((v?.incomingAttacks?.length) || 0), 0) || 0;
 
             allAttacks.push({
                 playerId: mId,
                 playerName: mName,
                 points: member.points || 0,
                 rank: member.rank || 0,
-                villages: member.villages || 0,
+                villageCount: member.villages || 0,
                 incomingCount: finalIncomingCount,
+                villages: detailedVillages,
                 attacks: pAttacks.attacks || []
             });
             
             totalAttacks += finalIncomingCount;
-            totalNobles += (pAttacks.attacks || []).filter(a => a.isNoble).length;
-            totalRams += (pAttacks.attacks || []).filter(a => a.isRam).length;
+            const flatAttacks = (pAttacks.attacks || []).length > 0
+                ? (pAttacks.attacks || [])
+                : detailedVillages.flatMap(v => v?.incomingAttacks || []);
+
+            totalNobles += flatAttacks.filter(a => a.isNoble).length;
+            totalRams += flatAttacks.filter(a => a.isRam).length;
         }
 
         // Adiciona quem tem ataques mas não apareceu no scan da tribo
@@ -116,8 +122,10 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
     });
 
     router.post('/incomings', (req, res) => {
-        const { worldId, attacks, playerId, playerName } = req.body;
-        console.log(`[POST] /api/tribe/incomings - worldId: ${worldId}, player: ${playerName} (${playerId}), attacks: ${attacks?.length || 0}`);
+        const { worldId, attacks, villages, playerId, playerName } = req.body;
+        const attacksLen = attacks?.length || 0;
+        const villagesLen = villages?.length || 0;
+        console.log(`[POST] /api/tribe/incomings - worldId: ${worldId}, player: ${playerName} (${playerId}), attacks: ${attacksLen}, villages: ${villagesLen}`);
         
         if (!worldId) return res.status(400).json({ success: false, error: "worldId missing" });
 
@@ -128,11 +136,41 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
         const worldIncomings = tribeIncomings.get(worldId);
         const pId = playerId || "local-player";
         const existing = worldIncomings.get(pId) || {};
+
+        let normalizedAttacks = Array.isArray(attacks) ? attacks : (existing.attacks || []);
+        let normalizedVillages = Array.isArray(villages) ? villages : (existing.villages || []);
+
+        // Se recebemos ataques mas não aldeias detalhadas, reconstruir a estrutura de aldeias
+        if (normalizedAttacks.length > 0 && normalizedVillages.length === 0) {
+            console.log(`[BACKEND] Reconstruindo estrutura de aldeias para ${playerName || pId}`);
+            const villageMap = new Map();
+            normalizedAttacks.forEach(att => {
+                const coord = att.destination?.match(/\d{1,3}\|\d{1,3}/)?.[0] || "Desconhecida";
+                if (!villageMap.has(coord)) {
+                    villageMap.set(coord, {
+                        coord,
+                        villageName: att.destination?.split("(")[0]?.trim() || "Aldeia",
+                        incomingAttacks: [],
+                        troops: { own: {}, support: {}, total: {} }
+                    });
+                }
+                villageMap.get(coord).incomingAttacks.push(att);
+            });
+            normalizedVillages = Array.from(villageMap.values());
+        }
+
+        const incomingCount =
+            req.body.incomingCount ||
+            normalizedAttacks.length ||
+            normalizedVillages.reduce((sum, v) => sum + ((v?.incomingAttacks?.length) || 0), 0) ||
+            existing.incomingCount ||
+            0;
         
         worldIncomings.set(pId, {
             playerName: playerName || existing.playerName || "Local Player",
-            attacks: attacks || existing.attacks || [],
-            incomingCount: req.body.incomingCount || attacks?.length || existing.incomingCount || 0,
+            attacks: normalizedAttacks,
+            villages: normalizedVillages,
+            incomingCount,
             updatedAt: Date.now()
         });
 
