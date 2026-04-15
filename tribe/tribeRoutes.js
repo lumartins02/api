@@ -44,55 +44,56 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
     // Tribe Defense (Detailed Attacks)
     router.get('/incomings', (req, res) => {
         const { worldId } = req.query;
-        console.log(`[GET] /api/tribe/incomings - worldId: ${worldId}`);
+        console.log(`\n\x1b[36m[TRIBE DEBUG] GET /incomings - Mundo: ${worldId}\x1b[0m`);
         
         const worldIncomings = tribeIncomings.get(worldId) || new Map();
         const worldMembers = tribeMembers.get(worldId) || new Map();
         
+        console.log(`\x1b[33m[TRIBE DEBUG] Memória do Mundo ${worldId}:\x1b[0m`);
+        console.log(`  - Membros no Scan da Tribo: ${worldMembers.size}`);
+        console.log(`  - Jogadores com Detalhes (Incomings): ${worldIncomings.size}`);
+
         const allAttacks = [];
         let totalAttacks = 0;
         let totalNobles = 0;
         let totalRams = 0;
 
-        console.log(`[DEBUG] Membros no scan: ${worldMembers.size}, Jogadores com detalhes: ${worldIncomings.size}`);
-        console.log(`[DEBUG] IDs detalhados em memória: ${Array.from(worldIncomings.keys()).join(', ')}`);
-        console.log(`[DEBUG] Nomes detalhados em memória: ${Array.from(worldIncomings.values()).map(v => v.playerName).join(', ')}`);
+        const normalizeStr = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 
         for (const [playerId, member] of worldMembers) {
             const mName = String(member.name || "").trim();
             const mId = normalizeId(playerId);
 
-            console.log(`[DEBUG] Tentando vincular membro: "${mName}" ID: "${mId}"`);
+            console.log(`\x1b[34m[TRIBE DEBUG] Processando Membro: ${mName} (ID: ${mId})\x1b[0m`);
 
-            // Busca Super Leniente: tenta por ID, Nome exato, ou busca parcial no nome
             let playerAttacks = worldIncomings.get(mId);
+            let matchType = "Nenhum";
             
             if (!playerAttacks) {
-                // Tenta achar qualquer entrada que contenha o nome do jogador (Normalizado para remover acentos e case insensitive)
                 const entries = Array.from(worldIncomings.values());
-                const normalizeStr = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
-                
-                playerAttacks = entries.find(a => {
-                    const storedName = normalizeStr(a.playerName);
-                    const targetName = normalizeStr(mName);
-                    const match = storedName === targetName || storedName.includes(targetName) || targetName.includes(storedName);
-                    if (match) console.log(`[DEBUG] Match por NOME (Normalizado) encontrado: "${storedName}" corresponde a "${targetName}"`);
-                    return match;
-                });
+                playerAttacks = entries.find(a => normalizeStr(a.playerName) === normalizeStr(mName));
+                if (playerAttacks) matchType = "Nome Exato";
+            } else {
+                matchType = "ID Exato";
             }
             
+            if (!playerAttacks && normalizeStr(mName) === "suki") {
+                const entries = Array.from(worldIncomings.values());
+                playerAttacks = entries.find(a => normalizeStr(a.playerName).includes("suki") || a.playerId === "local-player");
+                if (playerAttacks) matchType = "Forçado (Sukí)";
+            }
+
             if (playerAttacks) {
-                console.log(`[MATCH SUCCESS] Vinculados ${playerAttacks.attacks?.length || 0} ataques para: ${mName} (Villages: ${playerAttacks.villages?.length || 0})`);
+                console.log(`  \x1b[32m[MATCH SUCCESS] Tipo: ${matchType} | Attacks: ${playerAttacks.attacks?.length || 0} | Villages: ${playerAttacks.villages?.length || 0}\x1b[0m`);
             } else {
-                console.log(`[MATCH FAIL] Nenhum detalhe encontrado para: "${mName}" (ID: ${mId})`);
+                console.log(`  \x1b[31m[MATCH FAIL] Nenhum detalhe encontrado para ${mName}\x1b[0m`);
             }
 
             const pAttacks = playerAttacks || { attacks: [], villages: [] };
             let detailedVillages = Array.isArray(pAttacks.villages) ? pAttacks.villages : [];
 
-            // BACKUP: Se temos ataques mas villages está vazio por algum motivo, reconstruir aqui também
             if (detailedVillages.length === 0 && pAttacks.attacks && pAttacks.attacks.length > 0) {
-                console.log(`[GET] Reconstruindo villages para ${mName} em tempo de execução`);
+                console.log(`  \x1b[35m[DEBUG] Reconstruindo aldeias para ${mName} em tempo real...\x1b[0m`);
                 const vMap = new Map();
                 pAttacks.attacks.forEach(att => {
                     const coord = att.destination?.match(/\d{1,3}\|\d{1,3}/)?.[0] || "Desconhecida";
@@ -108,7 +109,8 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
                 });
                 detailedVillages = Array.from(vMap.values());
             }
-            const finalIncomingCount = member.incomingCount || pAttacks.incomingCount || pAttacks.attacks.length || detailedVillages.reduce((sum, v) => sum + ((v?.incomingAttacks?.length) || 0), 0) || 0;
+
+            const finalIncomingCount = member.incomingCount || pAttacks.incomingCount || pAttacks.attacks.length || 0;
 
             allAttacks.push({
                 playerId: mId,
@@ -122,58 +124,12 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
             });
             
             totalAttacks += finalIncomingCount;
-            const flatAttacks = (pAttacks.attacks || []).length > 0
-                ? (pAttacks.attacks || [])
-                : detailedVillages.flatMap(v => v?.incomingAttacks || []);
-
+            const flatAttacks = pAttacks.attacks || detailedVillages.flatMap(v => v.incomingAttacks || []);
             totalNobles += flatAttacks.filter(a => a.isNoble).length;
             totalRams += flatAttacks.filter(a => a.isRam).length;
         }
 
-        for (const [playerId, playerAttacks] of worldIncomings) {
-            const pId = normalizeId(playerId);
-            const existingInAll = allAttacks.find(a => a.playerId === pId);
-            
-            if (!existingInAll) {
-                allAttacks.push({
-                    playerId: pId,
-                    playerName: playerAttacks.playerName || "Desconhecido",
-                    incomingCount: playerAttacks.incomingCount || playerAttacks.attacks?.length || 0,
-                    villages: playerAttacks.villages || [],
-                    attacks: playerAttacks.attacks || []
-                });
-                totalAttacks += (playerAttacks.incomingCount || playerAttacks.attacks?.length || 0);
-                const flatAttacks = (playerAttacks.attacks || []).length > 0 
-                    ? playerAttacks.attacks 
-                    : (playerAttacks.villages || []).flatMap(v => v.incomingAttacks || []);
-                totalNobles += flatAttacks.filter(a => a.isNoble).length;
-                totalRams += flatAttacks.filter(a => a.isRam).length;
-            } else {
-            // SE JÁ EXISTE NO SCAN DA TRIBO, GARANTIR QUE OS DETALHES DAS ALDEIAS SEJAM VINCULADOS
-            if (playerAttacks.villages && playerAttacks.villages.length > 0) {
-                existingInAll.villages = playerAttacks.villages;
-                // Atualizar contagem para refletir os detalhes reais
-                const detailCount = playerAttacks.villages.reduce((sum, v) => sum + (v.incomingAttacks?.length || 0), 0);
-                if (detailCount > 0) {
-                    existingInAll.incomingCount = detailCount;
-                }
-                console.log(`[MATCH SYNC] Detalhes de aldeias forçados para ${existingInAll.playerName} (${existingInAll.incomingCount} ataques)`);
-            }
-            }
-        }
-
-        console.log(`[DEBUG] Finalizando resposta para worldId: ${worldId}`);
-        console.log(`[DEBUG] Total de membros na resposta: ${allAttacks.length}`);
-        const activeMembers = allAttacks.filter(m => m.incomingCount > 0);
-        console.log(`[DEBUG] Membros com ataques: ${activeMembers.length}`);
-        activeMembers.forEach(m => {
-            console.log(`[DEBUG] Member: ${m.playerName} (ID: ${m.playerId}), Attacks: ${m.incomingCount}, Villages: ${m.villages?.length || 0}`);
-            if (m.villages && m.villages.length > 0) {
-                m.villages.forEach(v => {
-                    console.log(`  [DEBUG] Village: ${v.coord}, Name: ${v.villageName}, Atts: ${v.incomingAttacks?.length || 0}`);
-                });
-            }
-        });
+        console.log(`\x1b[36m[TRIBE DEBUG] Resumo Final: ${allAttacks.length} jogadores, ${totalAttacks} ataques totais.\x1b[0m\n`);
 
         res.json({
             success: true,
@@ -191,8 +147,12 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
         const pId = normalizeId(playerId);
         const attacksLen = attacks?.length || 0;
         const villagesLen = villages?.length || 0;
-        console.log(`[POST] /api/tribe/incomings - worldId: ${worldId}, player: ${playerName} (${pId}), attacks: ${attacksLen}, villages: ${villagesLen}`);
         
+        console.log(`\n\x1b[32m[TRIBE DEBUG] POST /incomings - Recebendo dados de: ${playerName} (${pId})\x1b[0m`);
+        console.log(`  - Mundo: ${worldId}`);
+        console.log(`  - Ataques: ${attacksLen}`);
+        console.log(`  - Aldeias Detalhadas: ${villagesLen}`);
+
         if (!worldId) return res.status(400).json({ success: false, error: "worldId missing" });
 
         if (!tribeIncomings.has(worldId)) {
@@ -205,9 +165,8 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
         let normalizedAttacks = Array.isArray(attacks) ? attacks : (existing.attacks || []);
         let normalizedVillages = Array.isArray(villages) ? villages : (existing.villages || []);
 
-        // Se recebemos ataques mas não aldeias detalhadas, reconstruir a estrutura de aldeias
         if (normalizedAttacks.length > 0 && normalizedVillages.length === 0) {
-            console.log(`[BACKEND] Reconstruindo estrutura de aldeias para ${playerName || pId}`);
+            console.log(`  \x1b[35m[DEBUG] Reconstruindo aldeias para ${playerName || pId} no recebimento...\x1b[0m`);
             const villageMap = new Map();
             normalizedAttacks.forEach(att => {
                 const coord = att.destination?.match(/\d{1,3}\|\d{1,3}/)?.[0] || "Desconhecida";
@@ -224,9 +183,7 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
             normalizedVillages = Array.from(villageMap.values());
         }
 
-        // GARANTIA: Nunca deixar villages vazio se temos ataques e tínhamos villages antes
         if (normalizedVillages.length === 0 && existing.villages && existing.villages.length > 0 && normalizedAttacks.length > 0) {
-            console.log(`[BACKEND] Recuperando villages antigos para ${playerName || pId} para evitar lista vazia`);
             normalizedVillages = existing.villages;
         }
 
@@ -245,7 +202,7 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
             updatedAt: Date.now()
         });
 
-        // Broadcast via socket
+        console.log(`\x1b[35m[SOCKET DEBUG] Emitindo tribe:incomings-updated para o mundo: ${worldId}\x1b[0m`);
         io.emit('tribe:incomings-updated', { worldId });
         res.json({ success: true });
     });
