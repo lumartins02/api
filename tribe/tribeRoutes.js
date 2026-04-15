@@ -113,20 +113,30 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
             totalRams += flatAttacks.filter(a => a.isRam).length;
         }
 
-        // Adiciona quem tem ataques mas não apareceu no scan da tribo
         for (const [playerId, playerAttacks] of worldIncomings) {
             const pId = String(playerId).trim();
-            if (!allAttacks.find(a => a.playerId === pId)) {
+            const existingInAll = allAttacks.find(a => a.playerId === pId);
+            
+            if (!existingInAll) {
                 allAttacks.push({
                     playerId: pId,
                     playerName: playerAttacks.playerName || "Desconhecido",
-                    incomingCount: playerAttacks.incomingCount || playerAttacks.attacks.length || 0,
+                    incomingCount: playerAttacks.incomingCount || playerAttacks.attacks?.length || 0,
                     villages: playerAttacks.villages || [],
                     attacks: playerAttacks.attacks || []
                 });
-                totalAttacks += (playerAttacks.incomingCount || playerAttacks.attacks.length || 0);
-                totalNobles += (playerAttacks.attacks || []).filter(a => a.isNoble).length;
-                totalRams += (playerAttacks.attacks || []).filter(a => a.isRam).length;
+                totalAttacks += (playerAttacks.incomingCount || playerAttacks.attacks?.length || 0);
+                const flatAttacks = (playerAttacks.attacks || []).length > 0 
+                    ? playerAttacks.attacks 
+                    : (playerAttacks.villages || []).flatMap(v => v.incomingAttacks || []);
+                totalNobles += flatAttacks.filter(a => a.isNoble).length;
+                totalRams += flatAttacks.filter(a => a.isRam).length;
+            } else {
+                // SE JÁ EXISTE NO SCAN DA TRIBO, GARANTIR QUE OS DETALHES DAS ALDEIAS SEJAM VINCULADOS
+                if (playerAttacks.villages && playerAttacks.villages.length > 0) {
+                    existingInAll.villages = playerAttacks.villages;
+                    console.log(`[MATCH SYNC] Detalhes de aldeias forçados para ${existingInAll.playerName}`);
+                }
             }
         }
 
