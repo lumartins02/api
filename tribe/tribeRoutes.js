@@ -2,6 +2,14 @@ const express = require('express');
 const router = express.Router();
 
 module.exports = (io, tribeIncomings, tribeMembers) => {
+    // Helper para normalizar IDs de jogador para strings inteiras (evitar "919041668.0")
+    const normalizeId = (id) => {
+        if (id === null || id === undefined) return "local-player";
+        const s = String(id).trim();
+        if (s.endsWith('.0')) return s.slice(0, -2);
+        return s;
+    };
+
     // Tribe Members Summary (Scan Results)
     router.get('/members', (req, res) => {
         const { worldId } = req.query;
@@ -21,10 +29,10 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
         
         const worldMembers = tribeMembers.get(worldId);
         (members || []).forEach(m => {
-            // Garantindo que o ID seja String para bater com o que o bot envia
-            worldMembers.set(String(m.playerId), { 
+            const pId = normalizeId(m.playerId);
+            worldMembers.set(pId, { 
                 ...m, 
-                playerId: String(m.playerId), 
+                playerId: pId, 
                 allyName, 
                 updatedAt: Date.now() 
             });
@@ -52,7 +60,7 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
 
         for (const [playerId, member] of worldMembers) {
             const mName = String(member.name || "").trim();
-            const mId = String(playerId).trim();
+            const mId = normalizeId(playerId);
 
             console.log(`[DEBUG] Tentando vincular membro: "${mName}" ID: "${mId}"`);
 
@@ -121,7 +129,7 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
         }
 
         for (const [playerId, playerAttacks] of worldIncomings) {
-            const pId = String(playerId).trim();
+            const pId = normalizeId(playerId);
             const existingInAll = allAttacks.find(a => a.playerId === pId);
             
             if (!existingInAll) {
@@ -147,6 +155,19 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
             }
         }
 
+        console.log(`[DEBUG] Finalizando resposta para worldId: ${worldId}`);
+        console.log(`[DEBUG] Total de membros na resposta: ${allAttacks.length}`);
+        const activeMembers = allAttacks.filter(m => m.incomingCount > 0);
+        console.log(`[DEBUG] Membros com ataques: ${activeMembers.length}`);
+        activeMembers.forEach(m => {
+            console.log(`[DEBUG] Member: ${m.playerName} (ID: ${m.playerId}), Attacks: ${m.incomingCount}, Villages: ${m.villages?.length || 0}`);
+            if (m.villages && m.villages.length > 0) {
+                m.villages.forEach(v => {
+                    console.log(`  [DEBUG] Village: ${v.coord}, Name: ${v.villageName}, Atts: ${v.incomingAttacks?.length || 0}`);
+                });
+            }
+        });
+
         res.json({
             success: true,
             data: {
@@ -160,9 +181,10 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
 
     router.post('/incomings', (req, res) => {
         const { worldId, attacks, villages, playerId, playerName } = req.body;
+        const pId = normalizeId(playerId);
         const attacksLen = attacks?.length || 0;
         const villagesLen = villages?.length || 0;
-        console.log(`[POST] /api/tribe/incomings - worldId: ${worldId}, player: ${playerName} (${playerId}), attacks: ${attacksLen}, villages: ${villagesLen}`);
+        console.log(`[POST] /api/tribe/incomings - worldId: ${worldId}, player: ${playerName} (${pId}), attacks: ${attacksLen}, villages: ${villagesLen}`);
         
         if (!worldId) return res.status(400).json({ success: false, error: "worldId missing" });
 
@@ -171,7 +193,6 @@ module.exports = (io, tribeIncomings, tribeMembers) => {
         }
 
         const worldIncomings = tribeIncomings.get(worldId);
-        const pId = playerId || "local-player";
         const existing = worldIncomings.get(pId) || {};
 
         let normalizedAttacks = Array.isArray(attacks) ? attacks : (existing.attacks || []);
